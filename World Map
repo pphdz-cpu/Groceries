@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Premium Travel Wall</title>
+<!--
+  Google OAuth does NOT work from file:// — open via http://localhost (see README in comments at bottom).
+  Replace GOOGLE_CLIENT_ID below with your Web client ID from Google Cloud Console.
+-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap');
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.35; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.15); }
+        }
+
+        body, html {
+            margin: 0; padding: 0; width: 100vw; height: 100vh;
+            font-family: system-ui, -apple-system, sans-serif;
+            background: radial-gradient(ellipse 140% 100% at 50% 50%, #081322 0%, #040c18 60%, #020608 100%);
+            overflow: hidden; color: white;
+        }
+        .stars { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+        .star { position: absolute; background: white; border-radius: 50%; }
+        #map-container {
+            position: absolute; top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 1; display: block;
+            cursor: grab;
+            touch-action: none;
+        }
+        #map-container.is-dragging { cursor: grabbing; }
+        .globe-ocean { pointer-events: none; }
+        .globe-graticule { fill: none; stroke: rgba(78, 205, 196, 0.12); stroke-width: 0.4; pointer-events: none; }
+        .globe-atmosphere { fill: none; stroke: rgba(78, 205, 196, 0.22); stroke-width: 1.5; pointer-events: none; }
+        .country { transition: fill-opacity 0.15s, stroke-width 0.15s; cursor: grab; }
+        .country.is-dragging { cursor: grabbing; }
+        .header {
+            position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+            padding: 20px 30px; display: flex; justify-content: space-between; align-items: center;
+            background: linear-gradient(180deg, rgba(4,12,24,.95) 0%, transparent 100%);
+        }
+        .title { font-family: 'Bebas Neue', sans-serif; font-size: 36px; letter-spacing: 5px; line-height: 1; margin: 0; }
+        .subtitle { font-size: 11px; color: rgba(255,255,255,0.5); letter-spacing: 3px; text-transform: uppercase; margin-top: 4px; }
+        .btn-google {
+            background: #4285F4; border: none; color: white; padding: 10px 20px; border-radius: 12px;
+            font-family: 'Bebas Neue', sans-serif; font-size: 16px; letter-spacing: 2px; cursor: pointer;
+            display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 15px rgba(66, 133, 244, 0.4);
+            transition: background 0.2s, transform 0.2s;
+        }
+        .btn-google:hover { background: #357ae8; transform: translateY(-2px); }
+        .btn-google.connected { background: #2a2a2a; box-shadow: none; }
+        .btn-google img { display: block; flex-shrink: 0; }
+        #tooltip {
+            position: absolute; background: rgba(4,12,24,0.95); border-radius: 10px; padding: 12px 16px;
+            pointer-events: none; opacity: 0; backdrop-filter: blur(10px); transition: opacity 0.2s; z-index: 50;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .tt-title { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 2px; margin: 0; }
+        .tt-desc { font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 4px; }
+        .drawer-backdrop {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px);
+            z-index: 99; opacity: 0; pointer-events: none; transition: opacity 0.3s;
+        }
+        .drawer {
+            position: fixed; bottom: -60%; left: 50%; transform: translateX(-50%);
+            width: min(90vw, 900px); height: 50vh; z-index: 100;
+            background: linear-gradient(145deg, #0d1117 0%, #161b22 60%, #0d1117 100%);
+            border-top-left-radius: 24px; border-top-right-radius: 24px;
+            border-top: 2px solid #4ECDC4; border-left: 2px solid #4ECDC4; border-right: 2px solid #4ECDC4;
+            box-shadow: 0 -20px 80px rgba(0,0,0,0.8); transition: bottom 0.4s ease;
+            display: flex; flex-direction: column;
+        }
+        .drawer.open { bottom: 0; }
+        .drawer-backdrop.open { opacity: 1; pointer-events: all; }
+        .drawer-header { padding: 24px 30px; display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .drawer-status { font-family: 'Bebas Neue', sans-serif; font-size: 14px; letter-spacing: 4px; margin-bottom: 4px; }
+        .drawer-title { font-family: 'Bebas Neue', sans-serif; font-size: 42px; letter-spacing: 3px; line-height: 1; margin: 0; }
+        .close-btn { background: none; border: none; color: white; font-size: 24px; cursor: pointer; opacity: 0.5; }
+        .close-btn:hover { opacity: 1; }
+        .drawer-toolbar {
+            display: none; flex-wrap: wrap; align-items: center; gap: 10px;
+            padding: 12px 30px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .drawer-toolbar.visible { display: flex; }
+        .drawer-external-link {
+            display: inline-flex; align-items: center; gap: 8px;
+            font-size: 12px; letter-spacing: 1px; text-transform: uppercase;
+            color: #fff; text-decoration: none;
+            padding: 8px 14px; border-radius: 10px;
+            background: rgba(66, 133, 244, 0.25); border: 1px solid rgba(66, 133, 244, 0.55);
+            transition: background 0.2s, transform 0.2s;
+        }
+        .drawer-external-link:hover { background: rgba(66, 133, 244, 0.45); transform: translateY(-1px); }
+        .drawer-toolbar-note { font-size: 11px; color: rgba(255,255,255,0.55); flex: 1 1 200px; }
+        .gallery { padding: 24px 30px; display: flex; gap: 16px; overflow-x: auto; flex: 1; min-height: 0; align-items: center; }
+        .gallery img { height: 85%; border-radius: 12px; object-fit: cover; border: 1px solid rgba(255,255,255,0.1); flex-shrink: 0; }
+        #fatal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 10000;
+            background: #0d1117; color: #fff; padding: 40px; font-family: system-ui, sans-serif;
+            overflow: auto;
+        }
+        #fatal-overlay h1 { color: #4ECDC4; margin-top: 0; }
+        #fatal-overlay pre { white-space: pre-wrap; word-break: break-word; background: #161b22; padding: 16px; border-radius: 8px; }
+</style>
+</head>
+<body>
+<div id="fatal-overlay" role="alert" aria-live="assertive">
+    <h1>Map failed to initialize</h1>
+    <p>Something went wrong while loading libraries or map data.</p>
+    <pre id="fatal-message"></pre>
+    <p style="opacity:0.8">If you opened this as <code>file://</code>, use <code>http://localhost</code> instead (see steps in the chat / README).</p>
+</div>
+<div class="stars" id="stars-container"></div>
+<div class="header">
+<div class="title-box">
+<h1 class="title">🌎 MY TRAVEL MAP</h1>
+<div class="subtitle">Drag to spin · Scroll to zoom</div>
+</div>
+<button type="button" class="btn-google" id="auth-btn" onclick="handleAuthClick()">
+<img id="auth-btn-icon" src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="16" height="16" alt="">
+<span id="auth-btn-label">CONNECT GOOGLE</span>
+</button>
+</div>
+<svg id="map-container" aria-label="World map"></svg>
+<div id="tooltip">
+<h3 class="tt-title" id="tt-name">Country</h3>
+<div class="tt-desc" id="tt-status">Status</div>
+</div>
+<div class="drawer-backdrop" id="drawer-bg" onclick="closeDrawer()"></div>
+<div class="drawer" id="photo-drawer">
+<div class="drawer-header" id="dh-bg">
+<div>
+<div class="drawer-status" id="drawer-status-text" style="color: #4ECDC4;">✈️ VISITED</div>
+<h2 class="drawer-title" id="drawer-location">COUNTRY</h2>
+</div>
+<button type="button" class="close-btn" onclick="closeDrawer()" aria-label="Close">✕</button>
+</div>
+<div class="drawer-toolbar" id="drawer-toolbar" aria-label="Extra photo sources"></div>
+<div class="gallery" id="photo-gallery"></div>
+</div>
+<script>
+(function () {
+    'use strict';
+
+    /** Replace with your OAuth 2.0 Web client ID (same value in Cloud Console). */
+    var GOOGLE_CLIENT_ID = '812861768021-gmfdnva94659pvbbn1rcua21677pjqn2.apps.googleusercontent.com';
+
+    /**
+     * Optional: Google Programmable Search (Custom Search JSON API) for image results.
+     * Leave blank to use Wikimedia Commons only (no key, good default).
+     * Warning: putting an API key in HTML exposes quota to anyone who can open the file — fine for local use, bad for a public website (use a tiny backend proxy instead).
+     */
+    var GOOGLE_CSE_API_KEY = '';
+    var GOOGLE_CSE_ENGINE_ID = '';
+
+    function showInitError(message) {
+        var el = document.getElementById('fatal-overlay');
+        var pre = document.getElementById('fatal-message');
+        if (pre) pre.textContent = message;
+        if (el) el.style.display = 'block';
+    }
+
+    if (typeof d3 === 'undefined') {
+        showInitError('D3 failed to load from the CDN (network or blocker).');
+        return;
+    }
+    if (typeof topojson === 'undefined') {
+        showInitError('TopoJSON failed to load from the CDN (network or blocker).');
+        return;
+    }
+
+    var VISITED = {
+        'United States of America': { color: '#4ECDC4' },
+        'United States': { color: '#4ECDC4' },
+        'Mexico': { color: '#FF6B35' },
+        'Japan': { color: '#FF6B9D' },
+        'France': { color: '#C44569' },
+        'Italy': { color: '#7bed9f' }
+    };
+
+    function visitedLookup(name) {
+        if (VISITED[name]) return VISITED[name];
+        return null;
+    }
+
+    var starsContainer = document.getElementById('stars-container');
+    for (var i = 0; i < 80; i++) {
+        var star = document.createElement('div');
+        star.className = 'star';
+        var size = Math.random() > 0.9 ? 2.5 : 1;
+        star.style.width = size + 'px';
+        star.style.height = size + 'px';
+        star.style.left = (Math.random() * 100) + '%';
+        star.style.top = (Math.random() * 100) + '%';
+        star.style.animation = 'twinkle ' + (2 + Math.random() * 3) + 's infinite ease-in-out';
+        starsContainer.appendChild(star);
+    }
+
+    var width = window.innerWidth || 1024;
+    var height = window.innerHeight || 768;
+    var baseScale = Math.min(width, height) * 0.44;
+    var zoomK = 1;
+    var dragMoved = 0;
+    var isSpinning = false;
+    var lastPointerX = 0;
+    var lastPointerY = 0;
+
+    var svg = d3.select('#map-container')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('viewBox', '0 0 ' + width + ' ' + height);
+
+    var projection = d3.geoOrthographic()
+        .scale(baseScale * zoomK)
+        .translate([width / 2, height / 2])
+        .clipAngle(90)
+        .rotate([0, -18, 0]);
+
+    var path = d3.geoPath().projection(projection);
+    var graticule = d3.geoGraticule10();
+
+    var g = svg.append('g');
+
+    var ocean = g.append('path')
+        .datum({ type: 'Sphere' })
+        .attr('class', 'globe-ocean')
+        .attr('fill', '#0d1f35')
+        .attr('stroke', 'rgba(78, 205, 196, 0.08)')
+        .attr('stroke-width', 1);
+
+    g.append('path')
+        .datum(graticule)
+        .attr('class', 'globe-graticule');
+
+    g.append('path')
+        .datum({ type: 'Sphere' })
+        .attr('class', 'globe-atmosphere');
+
+    function redrawGlobe() {
+        ocean.attr('d', path);
+        g.select('.globe-graticule').attr('d', path);
+        g.select('.globe-atmosphere').attr('d', path);
+        g.selectAll('.country').attr('d', path);
+    }
+
+    redrawGlobe();
+
+    function spinGlobe(dx, dy) {
+        if (!dx && !dy) return;
+        var r = projection.rotate();
+        var k = 75 / projection.scale();
+        projection.rotate([r[0] + dx * k, r[1] - dy * k, r[2]]);
+        redrawGlobe();
+    }
+
+    function endSpin() {
+        isSpinning = false;
+        svg.classed('is-dragging', false);
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        window.removeEventListener('pointercancel', onPointerUp);
+    }
+
+    function onPointerMove(event) {
+        if (!isSpinning) return;
+        var dx = event.movementX;
+        var dy = event.movementY;
+        if (dx === 0 && dy === 0) {
+            dx = event.clientX - lastPointerX;
+            dy = event.clientY - lastPointerY;
+        }
+        lastPointerX = event.clientX;
+        lastPointerY = event.clientY;
+        dragMoved += Math.abs(dx) + Math.abs(dy);
+        spinGlobe(dx, dy);
+    }
+
+    function onPointerUp() {
+        endSpin();
+    }
+
+    svg.on('pointerdown.spin', function (event) {
+        if (event.button !== 0 && event.pointerType === 'mouse') return;
+        isSpinning = true;
+        dragMoved = 0;
+        lastPointerX = event.clientX;
+        lastPointerY = event.clientY;
+        svg.classed('is-dragging', true);
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onPointerUp);
+    });
+
+    svg.node().addEventListener('wheel', function (event) {
+        event.preventDefault();
+        var factor = event.deltaY > 0 ? 0.92 : 1.08;
+        zoomK = Math.max(0.55, Math.min(2.2, zoomK * factor));
+        projection.scale(baseScale * zoomK);
+        redrawGlobe();
+    }, { passive: false });
+
+    window.addEventListener('resize', function () {
+        width = window.innerWidth || 1024;
+        height = window.innerHeight || 768;
+        baseScale = Math.min(width, height) * 0.44;
+        svg.attr('width', width).attr('height', height).attr('viewBox', '0 0 ' + width + ' ' + height);
+        projection.translate([width / 2, height / 2]).scale(baseScale * zoomK);
+        redrawGlobe();
+    });
+
+    var tooltip = document.getElementById('tooltip');
+
+    d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
+        .then(function (world) {
+            var countries = topojson.feature(world, world.objects.countries).features;
+            g.selectAll('.country')
+                .data(countries)
+                .enter().append('path')
+                .attr('class', 'country')
+                .attr('d', path)
+                .attr('fill', function (d) {
+                    var v = visitedLookup(d.properties.name);
+                    return v ? v.color : '#1c3252';
+                })
+                .attr('fill-opacity', function (d) {
+                    return visitedLookup(d.properties.name) ? 0.8 : 1.0;
+                })
+                .attr('stroke', function (d) {
+                    var v = visitedLookup(d.properties.name);
+                    return v ? v.color : '#2a4a6a';
+                })
+                .attr('stroke-width', function (d) {
+                    return visitedLookup(d.properties.name) ? 1.5 : 0.5;
+                })
+                .on('mouseover', function (event, d) {
+                    var name = d.properties.name;
+                    var isV = visitedLookup(name);
+                    d3.select(this)
+                        .attr('fill-opacity', 1.0)
+                        .attr('stroke-width', isV ? 2.5 : 1.5);
+                    tooltip.style.opacity = 1;
+                    document.getElementById('tt-name').innerText = name.toUpperCase();
+                    document.getElementById('tt-status').innerText = isV ? '✈️ Click to load Google Photos' : '🌍 Click for photos + Google Images link';
+                    document.getElementById('tt-status').style.color = isV ? isV.color : '#aaa';
+                    tooltip.style.borderBottom = '2px solid ' + (isV ? isV.color : '#aaa');
+                })
+                .on('mousemove', function (event) {
+                    tooltip.style.left = (event.pageX + 15) + 'px';
+                    tooltip.style.top = (event.pageY - 20) + 'px';
+                })
+                .on('mouseout', function (event, d) {
+                    var name = d.properties.name;
+                    var isV = visitedLookup(name);
+                    d3.select(this)
+                        .attr('fill-opacity', isV ? 0.8 : 1.0)
+                        .attr('stroke-width', isV ? 1.5 : 0.5);
+                    tooltip.style.opacity = 0;
+                })
+                .on('click', function (event, d) {
+                    if (dragMoved > 6) return;
+                    event.stopPropagation();
+                    var name = d.properties.name;
+                    var v = visitedLookup(name);
+                    if (v) {
+                        window.openDrawerFunc(name, '📸 PULLING FROM GOOGLE…', v.color, 'google');
+                    } else {
+                        window.openDrawerFunc(name, '🔍 DISCOVERING PHOTOS…', '#7ecbff', 'discover');
+                    }
+                });
+        })
+        .catch(function (error) {
+            showInitError('Map shapes failed to download or parse.\n\n' + (error && error.message ? error.message : String(error)));
+        });
+
+    var tokenClient;
+    var globalAccessToken = null;
+
+    function setAuthConnected(connected) {
+        var btn = document.getElementById('auth-btn');
+        var label = document.getElementById('auth-btn-label');
+        var icon = document.getElementById('auth-btn-icon');
+        if (!btn || !label) return;
+        if (connected) {
+            label.textContent = 'CONNECTED';
+            btn.classList.add('connected');
+            if (icon) icon.style.display = 'none';
+        } else {
+            label.textContent = 'CONNECT GOOGLE';
+            btn.classList.remove('connected');
+            if (icon) icon.style.display = '';
+        }
+    }
+
+    setTimeout(function () {
+        if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: GOOGLE_CLIENT_ID,
+                scope: 'https://www.googleapis.com/auth/photoslibrary.readonly',
+                callback: function (res) {
+                    if (res.access_token) {
+                        globalAccessToken = res.access_token;
+                        setAuthConnected(true);
+                    }
+                }
+            });
+        }
+    }, 1500);
+
+    window.handleAuthClick = function () {
+        if (tokenClient) {
+            tokenClient.requestAccessToken({ prompt: 'consent' });
+        } else {
+            alert('Google authorization is still loading, was blocked, or this page is not running on an allowed origin (use http://localhost, not file://).');
+        }
+    };
+
+    /** Library API image URLs: append w/h (required), then access_token for <img> (no Authorization header). */
+    function photosImageUrl(baseUrl, accessToken, w, h) {
+        return baseUrl + '=w' + w + '-h' + h + '-c&access_token=' + encodeURIComponent(accessToken);
+    }
+
+    function galleryShowMessage(galleryEl, color, text) {
+        galleryEl.textContent = '';
+        var h3 = document.createElement('h3');
+        h3.style.color = color;
+        h3.style.margin = 'auto';
+        h3.style.fontFamily = 'sans-serif';
+        h3.style.textAlign = 'center';
+        h3.style.padding = '0 16px';
+        h3.textContent = text;
+        galleryEl.appendChild(h3);
+    }
+
+    function commonsOriginParam() {
+        if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+            return window.location.origin;
+        }
+        return '*';
+    }
+
+    function commonsImageSearch(query) {
+        var params = new URLSearchParams({
+            action: 'query',
+            format: 'json',
+            origin: commonsOriginParam(),
+            generator: 'search',
+            gsrsearch: query,
+            gsrnamespace: '6',
+            gsrlimit: '24',
+            prop: 'imageinfo',
+            iiprop: 'url|thumburl',
+            iiurlwidth: '640'
+        });
+        return fetch('https://commons.wikimedia.org/w/api.php?' + params.toString()).then(function (r) {
+            return r.json();
+        });
+    }
+
+    function googleProgrammableImageSearch(countryName) {
+        if (!GOOGLE_CSE_API_KEY || !GOOGLE_CSE_ENGINE_ID) {
+            return Promise.resolve({ items: [] });
+        }
+        var url = 'https://www.googleapis.com/customsearch/v1?' + new URLSearchParams({
+            key: GOOGLE_CSE_API_KEY,
+            cx: GOOGLE_CSE_ENGINE_ID,
+            q: countryName + ' travel landmark landscape photography',
+            searchType: 'image',
+            num: '10',
+            safe: 'active'
+        });
+        return fetch(url).then(function (r) {
+            return r.json().then(function (data) {
+                if (!r.ok && data && data.error && data.error.message) {
+                    return { items: [], error: data.error.message };
+                }
+                return { items: data.items || [] };
+            });
+        });
+    }
+
+    function googleImagesSearchUrl(countryName) {
+        var q = countryName + ' travel landmarks scenery photography';
+        return 'https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(q);
+    }
+
+    function setupDiscoverToolbar(countryName) {
+        var toolbar = document.getElementById('drawer-toolbar');
+        if (!toolbar) return;
+        toolbar.classList.add('visible');
+        toolbar.textContent = '';
+        var a = document.createElement('a');
+        a.className = 'drawer-external-link';
+        a.href = googleImagesSearchUrl(countryName);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = 'Open Google Images (full web search)';
+        toolbar.appendChild(a);
+        var note = document.createElement('span');
+        note.className = 'drawer-toolbar-note';
+        note.textContent =
+            'Embedded previews come from Wikimedia Commons (no login). Optional: set GOOGLE_CSE_API_KEY + GOOGLE_CSE_ENGINE_ID for Google image thumbnails inside the drawer.';
+        toolbar.appendChild(note);
+    }
+
+    function hideDiscoverToolbar() {
+        var toolbar = document.getElementById('drawer-toolbar');
+        if (!toolbar) return;
+        toolbar.classList.remove('visible');
+        toolbar.textContent = '';
+    }
+
+    function loadDiscoveryPhotos(countryName, galleryEl, accentColor) {
+        galleryShowMessage(galleryEl, '#ffffff', 'Loading previews for "' + countryName + '"…');
+
+        var googleUrls = [];
+        var commonsUrls = [];
+
+        var pGoogle = googleProgrammableImageSearch(countryName)
+            .then(function (pack) {
+                if (pack && pack.error) return;
+                (pack.items || []).forEach(function (it) {
+                    if (it.link) googleUrls.push(it.link);
+                });
+            })
+            .catch(function () {});
+
+        function collectCommons(query, bucket) {
+            return commonsImageSearch(query)
+                .then(function (data) {
+                    if (!data || data.error) return;
+                    var pages = data.query && data.query.pages;
+                    if (!pages) return;
+                    Object.keys(pages).forEach(function (id) {
+                        var p = pages[id];
+                        if (!p.imageinfo || !p.imageinfo[0]) return;
+                        var ii = p.imageinfo[0];
+                        bucket.push(ii.thumburl || ii.url);
+                    });
+                })
+                .catch(function () {});
+        }
+
+        var pC1 = collectCommons(countryName + ' landscape', commonsUrls);
+        var pC2 = collectCommons(countryName + ' city skyline', commonsUrls);
+        var pC3 = collectCommons(countryName + ' UNESCO', commonsUrls);
+
+        return Promise.all([pGoogle, pC1, pC2, pC3])
+            .then(function () {
+            var seen = Object.create(null);
+            var urls = [];
+
+            function addUnique(list) {
+                for (var i = 0; i < list.length; i++) {
+                    var u = list[i];
+                    if (!u || seen[u]) continue;
+                    seen[u] = true;
+                    urls.push(u);
+                }
+            }
+
+            addUnique(googleUrls);
+            addUnique(commonsUrls);
+
+            if (urls.length === 0) {
+                galleryShowMessage(
+                    galleryEl,
+                    '#FF6B35',
+                    'No previews loaded. Try the blue "Open Google Images" button above, or serve this page from http://localhost (not file://). Optional: add Google Custom Search (image) keys for embedded Google thumbnails.'
+                );
+                return;
+            }
+
+            galleryEl.textContent = '';
+            var srcLabel = GOOGLE_CSE_API_KEY && GOOGLE_CSE_ENGINE_ID ? 'GOOGLE API + COMMONS' : 'COMMONS PREVIEWS';
+            var st = document.getElementById('drawer-status-text');
+            if (st) {
+                st.innerText = '🌍 DISCOVER · ' + srcLabel;
+                st.style.color = accentColor;
+            }
+
+            urls.slice(0, 30).forEach(function (u) {
+                var img = document.createElement('img');
+                img.src = u;
+                img.loading = 'lazy';
+                img.referrerPolicy = 'no-referrer';
+                img.alt = countryName;
+                galleryEl.appendChild(img);
+            });
+        })
+            .catch(function () {
+                galleryShowMessage(galleryEl, '#FF6B35', 'Discovery failed (network or CORS). Use the Google Images button above.');
+            });
+    }
+
+    /**
+     * @param {string} title - Country name
+     * @param {string} status - Short status line
+     * @param {string} color - Accent color
+     * @param {'google'|'discover'} mode
+     */
+    window.openDrawerFunc = function (title, status, color, mode) {
+        var drawer = document.getElementById('photo-drawer');
+        var bg = document.getElementById('drawer-bg');
+        var gallery = document.getElementById('photo-gallery');
+        var tt = document.getElementById('tooltip');
+        document.getElementById('drawer-location').innerText = title.toUpperCase();
+        document.getElementById('drawer-status-text').innerText = status;
+        document.getElementById('drawer-status-text').style.color = color;
+        drawer.style.borderTopColor = color;
+        drawer.style.borderLeftColor = color;
+        drawer.style.borderRightColor = color;
+        document.getElementById('dh-bg').style.background = 'linear-gradient(90deg, ' + color + '22, transparent)';
+        drawer.classList.add('open');
+        bg.classList.add('open');
+        tt.style.opacity = 0;
+
+        hideDiscoverToolbar();
+        if (mode === 'discover') {
+            setupDiscoverToolbar(title);
+        }
+
+        if (mode === 'google') {
+            if (!globalAccessToken) {
+                galleryShowMessage(gallery, '#FF6B35', 'Connect Google first (top right), then try again.');
+                return;
+            }
+            galleryShowMessage(gallery, '#ffffff', 'Loading recent Google Photos…');
+            fetch('https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=10', {
+                headers: { Authorization: 'Bearer ' + globalAccessToken }
+            })
+                .then(function (response) {
+                    return response.json().then(function (data) {
+                        return { ok: response.ok, status: response.status, data: data };
+                    });
+                })
+                .then(function (result) {
+                    gallery.textContent = '';
+                    document.getElementById('drawer-status-text').innerText = '✈️ RECENT GOOGLE PHOTOS';
+                    if (!result.ok) {
+                        var msg = (result.data && (result.data.error && result.data.error.message)) || ('HTTP ' + result.status);
+                        galleryShowMessage(gallery, '#FF6B35', msg);
+                        return;
+                    }
+                    var data = result.data;
+                    if (data.mediaItems && data.mediaItems.length > 0) {
+                        data.mediaItems.forEach(function (item) {
+                            if (!item.baseUrl) return;
+                            var img = document.createElement('img');
+                            img.alt = item.filename || 'Photo';
+                            img.loading = 'lazy';
+                            img.referrerPolicy = 'no-referrer';
+                            img.src = photosImageUrl(item.baseUrl, globalAccessToken, 600, 600);
+                            gallery.appendChild(img);
+                        });
+                    } else {
+                        galleryShowMessage(gallery, '#ffffff', 'No photos returned (empty library or restricted API access).');
+                    }
+                })
+                .catch(function () {
+                    galleryShowMessage(gallery, '#FF6B35', 'Failed to load photos (network or CORS).');
+                });
+        } else if (mode === 'discover') {
+            loadDiscoveryPhotos(title, gallery, color);
+        }
+    };
+
+    window.closeDrawer = function () {
+        document.getElementById('photo-drawer').classList.remove('open');
+        document.getElementById('drawer-bg').classList.remove('open');
+    };
+})();
+</script>
+</body>
+</html>
