@@ -135,7 +135,7 @@ If Google says the app "already has some access", it is reusing a previous grant
 
 If the error appears only after you select photos, make sure you are using the newest `index.html`. Picker image URLs must be fetched with an authorization header, so older versions of this file cannot display selected photos correctly.
 
-The orange setup box includes a **Debug info** section. If Google still fails, copy these lines:
+Click the **Google Debug** button at the top of the map to open the orange setup box. The box includes a **Debug info** section. If Google still fails, copy these lines:
 
 - `appVersion`
 - `grantedScopes`
