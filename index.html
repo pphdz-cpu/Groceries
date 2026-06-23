@@ -104,6 +104,19 @@
         .picker-panel h3 { margin: 0 0 12px; font-family: sans-serif; color: #fff; }
         .picker-panel p { margin: 0 0 18px; line-height: 1.45; }
         .picker-panel .drawer-external-link { justify-content: center; }
+        .setup-help {
+            position: fixed; right: 24px; top: 86px; z-index: 60;
+            width: min(360px, calc(100vw - 48px)); display: none;
+            background: rgba(13,17,23,0.96); border: 1px solid rgba(255,107,53,0.75);
+            border-radius: 16px; padding: 16px; box-shadow: 0 18px 50px rgba(0,0,0,0.5);
+            color: rgba(255,255,255,0.85); font-size: 13px; line-height: 1.45;
+        }
+        .setup-help.open { display: block; }
+        .setup-help h2 { margin: 0 0 8px; color: #FF6B35; font-size: 16px; }
+        .setup-help p { margin: 0 0 8px; }
+        .setup-help ul { margin: 8px 0 0; padding-left: 18px; }
+        .setup-help code { color: #fff; background: rgba(255,255,255,0.08); padding: 1px 4px; border-radius: 4px; }
+        .setup-help button { float: right; background: transparent; border: 0; color: white; cursor: pointer; font-size: 18px; opacity: 0.7; }
         #fatal-overlay {
             display: none; position: fixed; inset: 0; z-index: 10000;
             background: #0d1117; color: #fff; padding: 40px; font-family: system-ui, sans-serif;
@@ -130,6 +143,18 @@
 <img id="auth-btn-icon" src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="16" height="16" alt="">
 <span id="auth-btn-label">CONNECT GOOGLE</span>
 </button>
+</div>
+<div class="setup-help" id="setup-help" role="status" aria-live="polite">
+<button type="button" onclick="hideSetupHelp()" aria-label="Close setup help">×</button>
+<h2>Google sign-in needs setup</h2>
+<p id="setup-help-message"></p>
+<ul>
+<li>Open this page at <code>http://localhost:8000/</code>.</li>
+<li>Enable <strong>Google Photos Picker API</strong> in Google Cloud.</li>
+<li>Use an OAuth <strong>Web application</strong> client ID.</li>
+<li>Add <code id="setup-help-origin">http://localhost:8000</code> as an authorized JavaScript origin.</li>
+<li>Add your Google account as a test user if the app is in testing mode.</li>
+</ul>
 </div>
 <svg id="map-container" aria-label="World map"></svg>
 <div id="tooltip">
@@ -169,6 +194,37 @@
         var pre = document.getElementById('fatal-message');
         if (pre) pre.textContent = message;
         if (el) el.style.display = 'block';
+    }
+
+    function currentOriginText() {
+        if (window.location.protocol === 'file:') return 'file://';
+        return window.location.origin;
+    }
+
+    function showSetupHelp(message) {
+        var box = document.getElementById('setup-help');
+        var messageEl = document.getElementById('setup-help-message');
+        var originEl = document.getElementById('setup-help-origin');
+        if (messageEl) messageEl.textContent = message;
+        if (originEl) originEl.textContent = currentOriginText();
+        if (box) box.classList.add('open');
+    }
+
+    window.hideSetupHelp = function () {
+        var box = document.getElementById('setup-help');
+        if (box) box.classList.remove('open');
+    };
+
+    function checkLocalGoogleSetup() {
+        if (window.location.protocol === 'file:') {
+            showSetupHelp('This page is opened as a file. Google sign-in only works when the address starts with http://localhost:8000/.');
+            return false;
+        }
+        if (window.location.origin !== 'http://localhost:8000') {
+            showSetupHelp('Google sees this page as "' + currentOriginText() + '". That exact address must be added as an authorized JavaScript origin, or use http://localhost:8000/.');
+            return false;
+        }
+        return true;
     }
 
     if (typeof d3 === 'undefined') {
@@ -408,20 +464,39 @@
                 client_id: GOOGLE_CLIENT_ID,
                 scope: GOOGLE_PHOTOS_PICKER_SCOPE,
                 callback: function (res) {
+                    if (res.error) {
+                        showSetupHelp('Google sign-in failed: ' + (res.error_description || res.error) + '. Re-check the Google Cloud setup for this page address.');
+                        setAuthConnected(false);
+                        return;
+                    }
                     if (res.access_token) {
                         globalAccessToken = res.access_token;
                         setAuthConnected(true);
+                    } else {
+                        showSetupHelp('Google did not return a sign-in token. Try Connect Google again, and make sure popups are allowed for this page.');
+                        setAuthConnected(false);
                     }
+                },
+                error_callback: function (err) {
+                    var type = err && err.type ? err.type : 'unknown';
+                    var message = type === 'popup_failed_to_open'
+                        ? 'Google popup could not open. Allow popups for this page, then click Connect Google again.'
+                        : 'Google sign-in was closed or blocked before it finished. Click Connect Google again when you are ready.';
+                    showSetupHelp(message);
+                    setAuthConnected(false);
                 }
             });
+        } else {
+            showSetupHelp('Google sign-in script did not load. Check your internet connection, browser blockers, and that accounts.google.com is not blocked.');
         }
     }, 1500);
 
     window.handleAuthClick = function () {
+        checkLocalGoogleSetup();
         if (tokenClient) {
             tokenClient.requestAccessToken({ prompt: 'consent' });
         } else {
-            alert('Google authorization is still loading, was blocked, or this page is not running on an allowed origin (use http://localhost, not file://).');
+            showSetupHelp('Google authorization is still loading, was blocked, or this page is not running on an allowed origin.');
         }
     };
 
@@ -597,9 +672,7 @@
     }
 
     function commonsOriginParam() {
-        if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
-            return window.location.origin;
-        }
+        // Wikimedia requires origin=* for anonymous browser requests from localhost.
         return '*';
     }
 
@@ -613,11 +686,17 @@
             gsrnamespace: '6',
             gsrlimit: '24',
             prop: 'imageinfo',
-            iiprop: 'url|thumburl',
+            iiprop: 'url',
             iiurlwidth: '640'
         });
         return fetch('https://commons.wikimedia.org/w/api.php?' + params.toString()).then(function (r) {
-            return r.json();
+            return r.json().then(function (data) {
+                if (!r.ok) {
+                    var msg = (data.error && data.error.info) || ('HTTP ' + r.status);
+                    throw new Error(msg);
+                }
+                return data;
+            });
         });
     }
 
@@ -787,6 +866,7 @@
         if (mode === 'google') {
             if (!globalAccessToken) {
                 galleryShowMessage(gallery, '#FF6B35', 'Connect Google first (top right), then try again.');
+                showSetupHelp('You are not connected to Google yet. Click Connect Google, allow the popup, and make sure Google Cloud allows this page address.');
                 return;
             }
             startGooglePhotosPicker(gallery, color);

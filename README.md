@@ -37,6 +37,30 @@ In Google Cloud Console:
 
 Then run the local server above, open `http://localhost:8000/`, click **Connect Google**, click a visited country, and use the Google Photos picker link in the drawer.
 
+## Troubleshooting
+
+### Google sign-in keeps failing
+
+Check these first:
+
+- The browser address must be exactly `http://localhost:8000/`.
+- Do not use `file://`, `http://127.0.0.1:8000/`, or `http://0.0.0.0:8000/` unless that exact origin is also added in Google Cloud Console.
+- `GOOGLE_CLIENT_ID` in `index.html` must be your OAuth Web application client ID.
+- The **Google Photos Picker API** must be enabled for the same Google Cloud project as that client ID.
+- If the OAuth consent screen is in testing mode, your Google account must be listed as a test user.
+- Popups must be allowed for `localhost`.
+
+If Google shows an error page, the most useful detail is usually the small error name, such as `origin_mismatch`, `access_denied`, or `redirect_uri_mismatch`.
+
+### Unvisited-country photos do not load
+
+The embedded previews come from Wikimedia Commons. If they do not load:
+
+- Confirm your computer has internet access.
+- Try a common country such as Spain, Canada, or Brazil.
+- Use the **Open Google Images** button in the drawer as a fallback.
+- Browser privacy extensions can block public image/API requests; try another browser or temporarily disable blockers for localhost.
+
 ## Notes
 
 - The globe uses D3, TopoJSON, and map data from public CDNs, so it needs an internet connection.
