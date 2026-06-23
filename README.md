@@ -43,6 +43,14 @@ In Google Cloud Console:
 
 Then run the local server above, open `http://localhost:8000/`, click **Connect Google**, click a visited country, and use the Google Photos picker link in the drawer.
 
+The Google consent screen may describe this Picker permission as:
+
+```text
+View your Google Photos library
+```
+
+That wording is expected. The map still only receives the photos you choose in the picker.
+
 ## Troubleshooting
 
 ### Google sign-in keeps failing
@@ -122,6 +130,8 @@ Fix it in Google Cloud Console:
 You can leave the old **Photos Library API** disabled; this map does not use it.
 
 When the correct version of the map is running, this error should no longer appear by itself. If it still happens, the drawer should also show the required scope and the scopes Google actually granted.
+
+If the error appears only after you select photos, make sure you are using the newest `index.html`. Picker image URLs must be fetched with an authorization header, so older versions of this file cannot display selected photos correctly.
 
 ### Unvisited-country photos do not load
 
