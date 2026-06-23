@@ -52,6 +52,42 @@ Check these first:
 
 If Google shows an error page, the most useful detail is usually the small error name, such as `origin_mismatch`, `access_denied`, or `redirect_uri_mismatch`.
 
+### Error says "Photos Library API has not been used"
+
+That means the browser is running an older copy of the map. The current `index.html` uses the **Google Photos Picker API** at `photospicker.googleapis.com`, not the old Photos Library API at `photoslibrary.googleapis.com`.
+
+To fix it:
+
+1. Stop the local server by pressing `Ctrl+C` in the terminal.
+2. Make sure you are editing/opening the newest `index.html`.
+3. In `index.html`, search for:
+
+   ```text
+   photospicker.googleapis.com
+   ```
+
+   You should find it.
+
+4. Also search for:
+
+   ```text
+   photoslibrary.googleapis.com
+   ```
+
+   You should not find it.
+
+5. Start the server again:
+
+   ```bash
+   python3 -m http.server 8000
+   ```
+
+6. Reload the browser page. If needed, do a hard refresh:
+   - Windows/Linux: `Ctrl+F5`
+   - Mac: `Command+Shift+R`
+
+You do not need to enable the old **Photos Library API** for this map.
+
 ### Unvisited-country photos do not load
 
 The embedded previews come from Wikimedia Commons. If they do not load:
