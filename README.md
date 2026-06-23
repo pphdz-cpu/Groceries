@@ -113,9 +113,15 @@ Fix it in Google Cloud Console:
 
 6. Save/publish the consent screen changes.
 7. Make sure your Gmail is still added as a test user if the app is in testing mode.
-8. In the browser, hard refresh the map and click **Connect Google** again.
+8. Remove the old permission grant from your Google Account:
+   - Open `https://myaccount.google.com/connections`
+   - Find your Travel Map app/project
+   - Remove its access
+9. In the browser, hard refresh the map and click **Connect Google** again.
 
 You can leave the old **Photos Library API** disabled; this map does not use it.
+
+When the correct version of the map is running, this error should no longer appear by itself. If it still happens, the drawer should also show the required scope and the scopes Google actually granted.
 
 ### Unvisited-country photos do not load
 

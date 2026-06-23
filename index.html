@@ -468,10 +468,13 @@
     }
 
     function showMissingPickerScopeHelp(grantedScopes) {
-        var message = 'Google connected your account, but did not grant the Google Photos Picker permission. In Google Cloud Console, add the photospicker.mediaitems.readonly scope on the OAuth consent screen/Data Access page, save it, then click Connect Google again.';
+        var message = 'Google connected your account, but did not grant the Google Photos Picker permission. Required scope: ' + GOOGLE_PHOTOS_PICKER_SCOPE + '. In Google Cloud Console, add this exact scope on the OAuth consent screen/Data Access page, save it, then click Connect Google again.';
         if (grantedScopes) {
             message += ' Granted scopes: ' + grantedScopes;
+        } else {
+            message += ' Google did not report any granted scopes to this page.';
         }
+        message += ' If you already added it, remove this app from your Google Account third-party access page, hard refresh this map, and reconnect so Google shows a fresh consent screen.';
         showSetupHelp(message);
     }
 
@@ -524,7 +527,7 @@
     window.handleAuthClick = function () {
         checkLocalGoogleSetup();
         if (tokenClient) {
-            tokenClient.requestAccessToken({ prompt: 'consent' });
+            tokenClient.requestAccessToken({ prompt: 'consent select_account' });
         } else {
             showSetupHelp('Google authorization is still loading, was blocked, or this page is not running on an allowed origin.');
         }
@@ -587,7 +590,7 @@
                     var msg = (data.error && data.error.message) || ('HTTP ' + response.status);
                     if (/insufficient authentication scopes/i.test(msg)) {
                         showMissingPickerScopeHelp(latestTokenResponse && latestTokenResponse.scope);
-                        msg += ' The token is missing ' + GOOGLE_PHOTOS_PICKER_SCOPE + '.';
+                        msg = 'Google says this token has insufficient authentication scopes. Required scope: ' + GOOGLE_PHOTOS_PICKER_SCOPE + '. Granted scopes: ' + ((latestTokenResponse && latestTokenResponse.scope) || 'none reported') + '.';
                     }
                     throw new Error(msg);
                 }
