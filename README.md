@@ -18,6 +18,25 @@ Then open:
 http://localhost:8000/
 ```
 
+## Connect Google Photos
+
+Google no longer allows web apps to list your whole Photos library with the old `photoslibrary.readonly` scope. This page uses the supported Google Photos Picker API instead: you sign in, pick the photos you want to share with the page, and the selected photos are displayed in the drawer.
+
+In Google Cloud Console:
+
+1. Enable the **Google Photos Picker API** for your project.
+2. Create or use an OAuth 2.0 **Web application** client.
+3. Add this authorized JavaScript origin:
+
+   ```text
+   http://localhost:8000
+   ```
+
+4. If your OAuth consent screen is in testing mode, add your Google account as a test user.
+5. Put that Web client ID in `GOOGLE_CLIENT_ID` inside `index.html`.
+
+Then run the local server above, open `http://localhost:8000/`, click **Connect Google**, click a visited country, and use the Google Photos picker link in the drawer.
+
 ## Notes
 
 - The globe uses D3, TopoJSON, and map data from public CDNs, so it needs an internet connection.

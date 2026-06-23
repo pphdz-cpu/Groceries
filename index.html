@@ -100,6 +100,10 @@
         .drawer-toolbar-note { font-size: 11px; color: rgba(255,255,255,0.55); flex: 1 1 200px; }
         .gallery { padding: 24px 30px; display: flex; gap: 16px; overflow-x: auto; flex: 1; min-height: 0; align-items: center; }
         .gallery img { height: 85%; border-radius: 12px; object-fit: cover; border: 1px solid rgba(255,255,255,0.1); flex-shrink: 0; }
+        .picker-panel { margin: auto; max-width: 560px; text-align: center; color: rgba(255,255,255,0.78); }
+        .picker-panel h3 { margin: 0 0 12px; font-family: sans-serif; color: #fff; }
+        .picker-panel p { margin: 0 0 18px; line-height: 1.45; }
+        .picker-panel .drawer-external-link { justify-content: center; }
         #fatal-overlay {
             display: none; position: fixed; inset: 0; z-index: 10000;
             background: #0d1117; color: #fff; padding: 40px; font-family: system-ui, sans-serif;
@@ -158,6 +162,7 @@
      */
     var GOOGLE_CSE_API_KEY = '';
     var GOOGLE_CSE_ENGINE_ID = '';
+    var GOOGLE_PHOTOS_PICKER_SCOPE = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly';
 
     function showInitError(message) {
         var el = document.getElementById('fatal-overlay');
@@ -346,7 +351,7 @@
                         .attr('stroke-width', isV ? 2.5 : 1.5);
                     tooltip.style.opacity = 1;
                     document.getElementById('tt-name').innerText = name.toUpperCase();
-                    document.getElementById('tt-status').innerText = isV ? '✈️ Click to load Google Photos' : '🌍 Click for photos + Google Images link';
+                    document.getElementById('tt-status').innerText = isV ? '✈️ Click to choose Google Photos' : '🌍 Click for photos + Google Images link';
                     document.getElementById('tt-status').style.color = isV ? isV.color : '#aaa';
                     tooltip.style.borderBottom = '2px solid ' + (isV ? isV.color : '#aaa');
                 })
@@ -368,7 +373,7 @@
                     var name = d.properties.name;
                     var v = visitedLookup(name);
                     if (v) {
-                        window.openDrawerFunc(name, '📸 PULLING FROM GOOGLE…', v.color, 'google');
+                        window.openDrawerFunc(name, '📸 CHOOSE GOOGLE PHOTOS…', v.color, 'google');
                     } else {
                         window.openDrawerFunc(name, '🔍 DISCOVERING PHOTOS…', '#7ecbff', 'discover');
                     }
@@ -401,7 +406,7 @@
         if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
             tokenClient = google.accounts.oauth2.initTokenClient({
                 client_id: GOOGLE_CLIENT_ID,
-                scope: 'https://www.googleapis.com/auth/photoslibrary.readonly',
+                scope: GOOGLE_PHOTOS_PICKER_SCOPE,
                 callback: function (res) {
                     if (res.access_token) {
                         globalAccessToken = res.access_token;
@@ -420,9 +425,10 @@
         }
     };
 
-    /** Library API image URLs: append w/h (required), then access_token for <img> (no Authorization header). */
-    function photosImageUrl(baseUrl, accessToken, w, h) {
-        return baseUrl + '=w' + w + '-h' + h + '-c&access_token=' + encodeURIComponent(accessToken);
+    var activePickerPollTimer = null;
+
+    function pickerImageUrl(baseUrl, w, h) {
+        return baseUrl + '=w' + w + '-h' + h + '-c';
     }
 
     function galleryShowMessage(galleryEl, color, text) {
@@ -435,6 +441,159 @@
         h3.style.padding = '0 16px';
         h3.textContent = text;
         galleryEl.appendChild(h3);
+    }
+
+    function setDrawerStatus(text, color) {
+        var st = document.getElementById('drawer-status-text');
+        if (!st) return;
+        st.innerText = text;
+        if (color) st.style.color = color;
+    }
+
+    function parseDurationMillis(duration, fallbackMillis) {
+        if (!duration || typeof duration !== 'string') return fallbackMillis;
+        var value = parseFloat(duration.replace(/s$/, ''));
+        if (!isFinite(value) || value < 0) return fallbackMillis;
+        return value * 1000;
+    }
+
+    function googlePhotosPickerRequest(url, options) {
+        options = options || {};
+        options.headers = options.headers || {};
+        options.headers.Authorization = 'Bearer ' + globalAccessToken;
+        if (options.body && !options.headers['Content-Type']) {
+            options.headers['Content-Type'] = 'application/json';
+        }
+        return fetch(url, options).then(function (response) {
+            return response.text().then(function (text) {
+                var data = {};
+                if (text) {
+                    try {
+                        data = JSON.parse(text);
+                    } catch (error) {
+                        throw new Error('Google returned an unreadable response.');
+                    }
+                }
+                if (!response.ok) {
+                    var msg = (data.error && data.error.message) || ('HTTP ' + response.status);
+                    throw new Error(msg);
+                }
+                return data;
+            });
+        });
+    }
+
+    function showPickerSessionPrompt(galleryEl, session, accentColor) {
+        galleryEl.textContent = '';
+        var panel = document.createElement('div');
+        panel.className = 'picker-panel';
+
+        var title = document.createElement('h3');
+        title.textContent = 'Choose photos to show here';
+        panel.appendChild(title);
+
+        var body = document.createElement('p');
+        body.textContent = 'Google Photos now requires you to pick the specific photos this page can use. Open the picker, select photos, click Done, then return here.';
+        panel.appendChild(body);
+
+        var link = document.createElement('a');
+        link.className = 'drawer-external-link';
+        link.href = session.pickerUri + '/autoclose';
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'Open Google Photos Picker';
+        link.style.borderColor = accentColor;
+        link.style.background = accentColor + '33';
+        panel.appendChild(link);
+
+        galleryEl.appendChild(panel);
+    }
+
+    function renderPickedMediaItems(items, galleryEl, accentColor) {
+        galleryEl.textContent = '';
+        var rendered = 0;
+        items.forEach(function (item) {
+            var file = item.mediaFile;
+            if (!file || !file.baseUrl || !/^image\//.test(file.mimeType || '')) return;
+            var img = document.createElement('img');
+            img.alt = file.filename || 'Google Photos selection';
+            img.loading = 'lazy';
+            img.referrerPolicy = 'no-referrer';
+            img.src = pickerImageUrl(file.baseUrl, 600, 600);
+            galleryEl.appendChild(img);
+            rendered++;
+        });
+        if (rendered === 0) {
+            galleryShowMessage(galleryEl, accentColor, 'No photos were selected. Open the picker again and choose at least one photo.');
+            return;
+        }
+        setDrawerStatus('✈️ SELECTED GOOGLE PHOTOS', accentColor);
+    }
+
+    function loadPickedMediaItems(sessionId, galleryEl, accentColor, pageToken, items) {
+        items = items || [];
+        var params = new URLSearchParams({
+            sessionId: sessionId,
+            pageSize: '50'
+        });
+        if (pageToken) params.set('pageToken', pageToken);
+
+        return googlePhotosPickerRequest('https://photospicker.googleapis.com/v1/mediaItems?' + params.toString())
+            .then(function (data) {
+                items = items.concat(data.mediaItems || []);
+                if (data.nextPageToken) {
+                    return loadPickedMediaItems(sessionId, galleryEl, accentColor, data.nextPageToken, items);
+                }
+                renderPickedMediaItems(items, galleryEl, accentColor);
+            });
+    }
+
+    function startPickerPolling(session, galleryEl, accentColor) {
+        if (activePickerPollTimer) clearTimeout(activePickerPollTimer);
+        var startedAt = Date.now();
+        var interval = parseDurationMillis(session.pollingConfig && session.pollingConfig.pollInterval, 3000);
+        var timeout = parseDurationMillis(session.pollingConfig && session.pollingConfig.timeoutIn, 10 * 60 * 1000);
+
+        function poll() {
+            googlePhotosPickerRequest('https://photospicker.googleapis.com/v1/sessions/' + encodeURIComponent(session.id))
+                .then(function (latest) {
+                    if (latest.mediaItemsSet) {
+                        setDrawerStatus('📸 LOADING SELECTED PHOTOS…', accentColor);
+                        return loadPickedMediaItems(session.id, galleryEl, accentColor);
+                    }
+                    if (Date.now() - startedAt >= timeout) {
+                        galleryShowMessage(galleryEl, '#FF6B35', 'Picker timed out. Open the country again to start a new Google Photos selection.');
+                        return;
+                    }
+                    setDrawerStatus('📸 WAITING FOR PICKER…', accentColor);
+                    interval = parseDurationMillis(latest.pollingConfig && latest.pollingConfig.pollInterval, interval);
+                    activePickerPollTimer = setTimeout(poll, interval);
+                })
+                .catch(function (error) {
+                    galleryShowMessage(galleryEl, '#FF6B35', error.message || 'Google Photos Picker failed.');
+                });
+        }
+
+        activePickerPollTimer = setTimeout(poll, interval);
+    }
+
+    function startGooglePhotosPicker(galleryEl, accentColor) {
+        galleryShowMessage(galleryEl, '#ffffff', 'Creating Google Photos picker session…');
+        return googlePhotosPickerRequest('https://photospicker.googleapis.com/v1/sessions', {
+            method: 'POST',
+            body: JSON.stringify({ pickingConfig: { maxItemCount: '30' } })
+        })
+            .then(function (session) {
+                if (!session.id || !session.pickerUri) {
+                    throw new Error('Google did not return a picker session.');
+                }
+                setDrawerStatus('📸 PICK PHOTOS IN GOOGLE', accentColor);
+                showPickerSessionPrompt(galleryEl, session, accentColor);
+                startPickerPolling(session, galleryEl, accentColor);
+            })
+            .catch(function (error) {
+                galleryShowMessage(galleryEl, '#FF6B35', error.message || 'Could not start Google Photos Picker.');
+            });
     }
 
     function commonsOriginParam() {
@@ -630,47 +789,15 @@
                 galleryShowMessage(gallery, '#FF6B35', 'Connect Google first (top right), then try again.');
                 return;
             }
-            galleryShowMessage(gallery, '#ffffff', 'Loading recent Google Photos…');
-            fetch('https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=10', {
-                headers: { Authorization: 'Bearer ' + globalAccessToken }
-            })
-                .then(function (response) {
-                    return response.json().then(function (data) {
-                        return { ok: response.ok, status: response.status, data: data };
-                    });
-                })
-                .then(function (result) {
-                    gallery.textContent = '';
-                    document.getElementById('drawer-status-text').innerText = '✈️ RECENT GOOGLE PHOTOS';
-                    if (!result.ok) {
-                        var msg = (result.data && (result.data.error && result.data.error.message)) || ('HTTP ' + result.status);
-                        galleryShowMessage(gallery, '#FF6B35', msg);
-                        return;
-                    }
-                    var data = result.data;
-                    if (data.mediaItems && data.mediaItems.length > 0) {
-                        data.mediaItems.forEach(function (item) {
-                            if (!item.baseUrl) return;
-                            var img = document.createElement('img');
-                            img.alt = item.filename || 'Photo';
-                            img.loading = 'lazy';
-                            img.referrerPolicy = 'no-referrer';
-                            img.src = photosImageUrl(item.baseUrl, globalAccessToken, 600, 600);
-                            gallery.appendChild(img);
-                        });
-                    } else {
-                        galleryShowMessage(gallery, '#ffffff', 'No photos returned (empty library or restricted API access).');
-                    }
-                })
-                .catch(function () {
-                    galleryShowMessage(gallery, '#FF6B35', 'Failed to load photos (network or CORS).');
-                });
+            startGooglePhotosPicker(gallery, color);
         } else if (mode === 'discover') {
             loadDiscoveryPhotos(title, gallery, color);
         }
     };
 
     window.closeDrawer = function () {
+        if (activePickerPollTimer) clearTimeout(activePickerPollTimer);
+        activePickerPollTimer = null;
         document.getElementById('photo-drawer').classList.remove('open');
         document.getElementById('drawer-bg').classList.remove('open');
     };
