@@ -116,7 +116,12 @@
         .setup-help p { margin: 0 0 8px; }
         .setup-help ul { margin: 8px 0 0; padding-left: 18px; }
         .setup-help code { color: #fff; background: rgba(255,255,255,0.08); padding: 1px 4px; border-radius: 4px; }
-        .setup-help button { float: right; background: transparent; border: 0; color: white; cursor: pointer; font-size: 18px; opacity: 0.7; }
+        .setup-help > button { float: right; background: transparent; border: 0; color: white; cursor: pointer; font-size: 18px; opacity: 0.7; }
+        .setup-help .reset-google-btn {
+            float: none; margin-top: 8px; background: rgba(255,107,53,0.18);
+            border: 1px solid rgba(255,107,53,0.65); border-radius: 10px;
+            color: white; cursor: pointer; padding: 8px 12px; font-size: 12px;
+        }
         #fatal-overlay {
             display: none; position: fixed; inset: 0; z-index: 10000;
             background: #0d1117; color: #fff; padding: 40px; font-family: system-ui, sans-serif;
@@ -155,6 +160,7 @@
 <li>Add <code id="setup-help-origin">http://localhost:8000</code> as an authorized JavaScript origin.</li>
 <li>Add your Google account as a test user if the app is in testing mode.</li>
 </ul>
+<p><button type="button" class="reset-google-btn" onclick="resetGoogleConnection()">Reset Google connection</button></p>
 </div>
 <svg id="map-container" aria-label="World map"></svg>
 <div id="tooltip">
@@ -213,6 +219,25 @@
     window.hideSetupHelp = function () {
         var box = document.getElementById('setup-help');
         if (box) box.classList.remove('open');
+    };
+
+    window.resetGoogleConnection = function () {
+        function resetLocalState(message) {
+            latestTokenResponse = null;
+            globalAccessToken = null;
+            lastGoogleAccessToken = null;
+            setAuthConnected(false);
+            showSetupHelp(message + ' Now hard refresh the page and click Connect Google again.');
+        }
+
+        if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2 && lastGoogleAccessToken) {
+            google.accounts.oauth2.revoke(lastGoogleAccessToken, function () {
+                resetLocalState('Google access for this browser session was reset.');
+            });
+            return;
+        }
+
+        resetLocalState('No active Google token was available to reset from this page. If Google still says the app already has access, remove the app manually at https://myaccount.google.com/connections.');
     };
 
     function checkLocalGoogleSetup() {
@@ -441,6 +466,7 @@
 
     var tokenClient;
     var globalAccessToken = null;
+    var lastGoogleAccessToken = null;
     var latestTokenResponse = null;
     var activeObjectUrls = [];
 
@@ -484,16 +510,19 @@
             tokenClient = google.accounts.oauth2.initTokenClient({
                 client_id: GOOGLE_CLIENT_ID,
                 scope: GOOGLE_PHOTOS_PICKER_SCOPE,
+                include_granted_scopes: false,
                 callback: function (res) {
                     if (res.error) {
                         showSetupHelp('Google sign-in failed: ' + (res.error_description || res.error) + '. Re-check the Google Cloud setup for this page address.');
                         latestTokenResponse = null;
                         globalAccessToken = null;
+                        lastGoogleAccessToken = null;
                         setAuthConnected(false);
                         return;
                     }
                     if (res.access_token) {
                         latestTokenResponse = res;
+                        lastGoogleAccessToken = res.access_token;
                         if (!tokenHasPickerScope(res)) {
                             globalAccessToken = null;
                             setAuthConnected(false);
@@ -505,6 +534,7 @@
                     } else {
                         latestTokenResponse = null;
                         globalAccessToken = null;
+                        lastGoogleAccessToken = null;
                         showSetupHelp('Google did not return a sign-in token. Try Connect Google again, and make sure popups are allowed for this page.');
                         setAuthConnected(false);
                     }
@@ -517,6 +547,7 @@
                     showSetupHelp(message);
                     latestTokenResponse = null;
                     globalAccessToken = null;
+                    lastGoogleAccessToken = null;
                     setAuthConnected(false);
                 }
             });

@@ -131,6 +131,8 @@ You can leave the old **Photos Library API** disabled; this map does not use it.
 
 When the correct version of the map is running, this error should no longer appear by itself. If it still happens, the drawer should also show the required scope and the scopes Google actually granted.
 
+If Google says the app "already has some access", it is reusing a previous grant. Use the **Reset Google connection** button in the orange setup box, or remove the app manually from `https://myaccount.google.com/connections`, then hard refresh and connect again.
+
 If the error appears only after you select photos, make sure you are using the newest `index.html`. Picker image URLs must be fetched with an authorization header, so older versions of this file cannot display selected photos correctly.
 
 ### Unvisited-country photos do not load
