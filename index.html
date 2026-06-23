@@ -122,6 +122,16 @@
             border: 1px solid rgba(255,107,53,0.65); border-radius: 10px;
             color: white; cursor: pointer; padding: 8px 12px; font-size: 12px;
         }
+        .setup-debug {
+            margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.12);
+            padding-top: 8px;
+        }
+        .setup-debug summary { cursor: pointer; color: #fff; }
+        .setup-debug pre {
+            white-space: pre-wrap; word-break: break-word; margin: 8px 0 0;
+            background: rgba(255,255,255,0.08); border-radius: 8px; padding: 8px;
+            max-height: 220px; overflow: auto; font-size: 11px;
+        }
         #fatal-overlay {
             display: none; position: fixed; inset: 0; z-index: 10000;
             background: #0d1117; color: #fff; padding: 40px; font-family: system-ui, sans-serif;
@@ -161,6 +171,10 @@
 <li>Add your Google account as a test user if the app is in testing mode.</li>
 </ul>
 <p><button type="button" class="reset-google-btn" onclick="resetGoogleConnection()">Reset Google connection</button></p>
+<details class="setup-debug" open>
+<summary>Debug info</summary>
+<pre id="setup-debug-info">No Google request yet.</pre>
+</details>
 </div>
 <svg id="map-container" aria-label="World map"></svg>
 <div id="tooltip">
@@ -194,6 +208,13 @@
     var GOOGLE_CSE_API_KEY = '';
     var GOOGLE_CSE_ENGINE_ID = '';
     var GOOGLE_PHOTOS_PICKER_SCOPE = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly';
+    var APP_VERSION = 'travel-map-picker-debug-2026-06-23-0334';
+    var lastGoogleDebug = {
+        step: 'page loaded',
+        endpoint: 'none',
+        status: 'none',
+        message: 'No Google request yet.'
+    };
 
     function showInitError(message) {
         var el = document.getElementById('fatal-overlay');
@@ -213,7 +234,33 @@
         var originEl = document.getElementById('setup-help-origin');
         if (messageEl) messageEl.textContent = message;
         if (originEl) originEl.textContent = currentOriginText();
+        updateDebugInfo();
         if (box) box.classList.add('open');
+    }
+
+    function grantedScopesText() {
+        return (latestTokenResponse && latestTokenResponse.scope) || 'none reported';
+    }
+
+    function updateDebugInfo(extra) {
+        if (extra) {
+            Object.keys(extra).forEach(function (key) {
+                lastGoogleDebug[key] = extra[key];
+            });
+        }
+        var el = document.getElementById('setup-debug-info');
+        if (!el) return;
+        el.textContent = [
+            'appVersion: ' + APP_VERSION,
+            'pageOrigin: ' + currentOriginText(),
+            'clientProject: ' + ((GOOGLE_CLIENT_ID.match(/^(\d+)-/) || [])[1] || 'unknown'),
+            'requiredScope: ' + GOOGLE_PHOTOS_PICKER_SCOPE,
+            'grantedScopes: ' + grantedScopesText(),
+            'lastStep: ' + lastGoogleDebug.step,
+            'lastEndpoint: ' + lastGoogleDebug.endpoint,
+            'lastStatus: ' + lastGoogleDebug.status,
+            'lastMessage: ' + lastGoogleDebug.message
+        ].join('\n');
     }
 
     window.hideSetupHelp = function () {
@@ -513,6 +560,12 @@
                 include_granted_scopes: false,
                 callback: function (res) {
                     if (res.error) {
+                        updateDebugInfo({
+                            step: 'google sign-in callback',
+                            endpoint: 'accounts.google.com',
+                            status: 'oauth error',
+                            message: res.error_description || res.error
+                        });
                         showSetupHelp('Google sign-in failed: ' + (res.error_description || res.error) + '. Re-check the Google Cloud setup for this page address.');
                         latestTokenResponse = null;
                         globalAccessToken = null;
@@ -523,6 +576,12 @@
                     if (res.access_token) {
                         latestTokenResponse = res;
                         lastGoogleAccessToken = res.access_token;
+                        updateDebugInfo({
+                            step: 'google sign-in callback',
+                            endpoint: 'accounts.google.com',
+                            status: 'token received',
+                            message: 'Token received from Google sign-in.'
+                        });
                         if (!tokenHasPickerScope(res)) {
                             globalAccessToken = null;
                             setAuthConnected(false);
@@ -532,6 +591,12 @@
                         globalAccessToken = res.access_token;
                         setAuthConnected(true);
                     } else {
+                        updateDebugInfo({
+                            step: 'google sign-in callback',
+                            endpoint: 'accounts.google.com',
+                            status: 'no token',
+                            message: 'Google callback did not include an access token.'
+                        });
                         latestTokenResponse = null;
                         globalAccessToken = null;
                         lastGoogleAccessToken = null;
@@ -544,6 +609,12 @@
                     var message = type === 'popup_failed_to_open'
                         ? 'Google popup could not open. Allow popups for this page, then click Connect Google again.'
                         : 'Google sign-in was closed or blocked before it finished. Click Connect Google again when you are ready.';
+                    updateDebugInfo({
+                        step: 'google sign-in popup',
+                        endpoint: 'accounts.google.com',
+                        status: type,
+                        message: message
+                    });
                     showSetupHelp(message);
                     latestTokenResponse = null;
                     globalAccessToken = null;
@@ -604,8 +675,14 @@
         return value * 1000;
     }
 
-    function googlePhotosPickerRequest(url, options) {
+    function googlePhotosPickerRequest(url, options, step) {
         if (!globalAccessToken || !tokenHasPickerScope(latestTokenResponse)) {
+            updateDebugInfo({
+                step: step || 'before Picker API request',
+                endpoint: url,
+                status: 'blocked locally',
+                message: 'Missing Picker scope before request.'
+            });
             showMissingPickerScopeHelp(latestTokenResponse && latestTokenResponse.scope);
             return Promise.reject(new Error('Missing Google Photos Picker permission.'));
         }
@@ -615,6 +692,12 @@
         if (options.body && !options.headers['Content-Type']) {
             options.headers['Content-Type'] = 'application/json';
         }
+        updateDebugInfo({
+            step: step || 'Picker API request',
+            endpoint: url,
+            status: 'requesting',
+            message: 'Request sent to Google Photos Picker API.'
+        });
         return fetch(url, options).then(function (response) {
             return response.text().then(function (text) {
                 var data = {};
@@ -631,8 +714,20 @@
                         showMissingPickerScopeHelp(latestTokenResponse && latestTokenResponse.scope);
                         msg = 'Google says this token has insufficient authentication scopes. Required scope: ' + GOOGLE_PHOTOS_PICKER_SCOPE + '. Granted scopes: ' + ((latestTokenResponse && latestTokenResponse.scope) || 'none reported') + '.';
                     }
+                    updateDebugInfo({
+                        step: step || 'Picker API request',
+                        endpoint: url,
+                        status: response.status + ' ' + response.statusText,
+                        message: msg
+                    });
                     throw new Error(msg);
                 }
+                updateDebugInfo({
+                    step: step || 'Picker API request',
+                    endpoint: url,
+                    status: response.status + ' ' + response.statusText,
+                    message: 'Google request succeeded.'
+                });
                 return data;
             });
         });
@@ -666,13 +761,33 @@
 
     function pickedMediaBlob(url) {
         if (!globalAccessToken || !tokenHasPickerScope(latestTokenResponse)) {
+            updateDebugInfo({
+                step: 'download selected image',
+                endpoint: url,
+                status: 'blocked locally',
+                message: 'Missing Picker scope before image download.'
+            });
             showMissingPickerScopeHelp(latestTokenResponse && latestTokenResponse.scope);
             return Promise.reject(new Error('Missing Google Photos Picker permission.'));
         }
+        updateDebugInfo({
+            step: 'download selected image',
+            endpoint: url,
+            status: 'requesting',
+            message: 'Downloading selected Google Photos image with Authorization header.'
+        });
         return fetch(url, {
             headers: { Authorization: 'Bearer ' + globalAccessToken }
         }).then(function (response) {
-            if (response.ok) return response.blob();
+            if (response.ok) {
+                updateDebugInfo({
+                    step: 'download selected image',
+                    endpoint: url,
+                    status: response.status + ' ' + response.statusText,
+                    message: 'Selected image download succeeded.'
+                });
+                return response.blob();
+            }
             return response.text().then(function (text) {
                 var msg = text || ('HTTP ' + response.status);
                 try {
@@ -683,6 +798,12 @@
                     showMissingPickerScopeHelp(latestTokenResponse && latestTokenResponse.scope);
                     msg = 'Google says this image request has insufficient authentication scopes. Required scope: ' + GOOGLE_PHOTOS_PICKER_SCOPE + '. Granted scopes: ' + ((latestTokenResponse && latestTokenResponse.scope) || 'none reported') + '.';
                 }
+                updateDebugInfo({
+                    step: 'download selected image',
+                    endpoint: url,
+                    status: response.status + ' ' + response.statusText,
+                    message: msg
+                });
                 throw new Error(msg);
             });
         });
@@ -707,6 +828,7 @@
 
         var loaded = 0;
         var failed = 0;
+        var firstImageError = null;
         galleryEl.textContent = '';
 
         Promise.all(imageFiles.map(function (file) {
@@ -722,12 +844,13 @@
                     galleryEl.appendChild(img);
                     loaded++;
                 })
-                .catch(function () {
+                .catch(function (error) {
+                    if (!firstImageError) firstImageError = error;
                     failed++;
                 });
         })).then(function () {
             if (loaded === 0) {
-                galleryShowMessage(galleryEl, '#FF6B35', 'Google listed your selected photos, but the image downloads failed. Remove the app from your Google Account connections, refresh, and connect again.');
+                galleryShowMessage(galleryEl, '#FF6B35', firstImageError && firstImageError.message ? firstImageError.message : 'Google listed your selected photos, but the image downloads failed. Remove the app from your Google Account connections, refresh, and connect again.');
                 return;
             }
             setDrawerStatus(failed ? '✈️ SELECTED GOOGLE PHOTOS · SOME FAILED' : '✈️ SELECTED GOOGLE PHOTOS', accentColor);
@@ -742,7 +865,7 @@
         });
         if (pageToken) params.set('pageToken', pageToken);
 
-        return googlePhotosPickerRequest('https://photospicker.googleapis.com/v1/mediaItems?' + params.toString())
+        return googlePhotosPickerRequest('https://photospicker.googleapis.com/v1/mediaItems?' + params.toString(), undefined, 'list selected media')
             .then(function (data) {
                 items = items.concat(data.mediaItems || []);
                 if (data.nextPageToken) {
@@ -759,7 +882,7 @@
         var timeout = parseDurationMillis(session.pollingConfig && session.pollingConfig.timeoutIn, 10 * 60 * 1000);
 
         function poll() {
-            googlePhotosPickerRequest('https://photospicker.googleapis.com/v1/sessions/' + encodeURIComponent(session.id))
+            googlePhotosPickerRequest('https://photospicker.googleapis.com/v1/sessions/' + encodeURIComponent(session.id), undefined, 'poll picker session')
                 .then(function (latest) {
                     if (latest.mediaItemsSet) {
                         setDrawerStatus('📸 LOADING SELECTED PHOTOS…', accentColor);
@@ -786,7 +909,7 @@
         return googlePhotosPickerRequest('https://photospicker.googleapis.com/v1/sessions', {
             method: 'POST',
             body: JSON.stringify({ pickingConfig: { maxItemCount: '30' } })
-        })
+        }, 'create picker session')
             .then(function (session) {
                 if (!session.id || !session.pickerUri) {
                     throw new Error('Google did not return a picker session.');
