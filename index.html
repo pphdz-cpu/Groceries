@@ -441,6 +441,7 @@
 
     var tokenClient;
     var globalAccessToken = null;
+    var latestTokenResponse = null;
 
     function setAuthConnected(connected) {
         var btn = document.getElementById('auth-btn');
@@ -458,6 +459,22 @@
         }
     }
 
+    function tokenHasPickerScope(response) {
+        if (!response) return false;
+        if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2 && google.accounts.oauth2.hasGrantedAllScopes) {
+            return google.accounts.oauth2.hasGrantedAllScopes(response, GOOGLE_PHOTOS_PICKER_SCOPE);
+        }
+        return !!response.scope && response.scope.split(/\s+/).indexOf(GOOGLE_PHOTOS_PICKER_SCOPE) !== -1;
+    }
+
+    function showMissingPickerScopeHelp(grantedScopes) {
+        var message = 'Google connected your account, but did not grant the Google Photos Picker permission. In Google Cloud Console, add the photospicker.mediaitems.readonly scope on the OAuth consent screen/Data Access page, save it, then click Connect Google again.';
+        if (grantedScopes) {
+            message += ' Granted scopes: ' + grantedScopes;
+        }
+        showSetupHelp(message);
+    }
+
     setTimeout(function () {
         if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
             tokenClient = google.accounts.oauth2.initTokenClient({
@@ -466,13 +483,24 @@
                 callback: function (res) {
                     if (res.error) {
                         showSetupHelp('Google sign-in failed: ' + (res.error_description || res.error) + '. Re-check the Google Cloud setup for this page address.');
+                        latestTokenResponse = null;
+                        globalAccessToken = null;
                         setAuthConnected(false);
                         return;
                     }
                     if (res.access_token) {
+                        latestTokenResponse = res;
+                        if (!tokenHasPickerScope(res)) {
+                            globalAccessToken = null;
+                            setAuthConnected(false);
+                            showMissingPickerScopeHelp(res.scope);
+                            return;
+                        }
                         globalAccessToken = res.access_token;
                         setAuthConnected(true);
                     } else {
+                        latestTokenResponse = null;
+                        globalAccessToken = null;
                         showSetupHelp('Google did not return a sign-in token. Try Connect Google again, and make sure popups are allowed for this page.');
                         setAuthConnected(false);
                     }
@@ -483,6 +511,8 @@
                         ? 'Google popup could not open. Allow popups for this page, then click Connect Google again.'
                         : 'Google sign-in was closed or blocked before it finished. Click Connect Google again when you are ready.';
                     showSetupHelp(message);
+                    latestTokenResponse = null;
+                    globalAccessToken = null;
                     setAuthConnected(false);
                 }
             });
@@ -533,6 +563,10 @@
     }
 
     function googlePhotosPickerRequest(url, options) {
+        if (!globalAccessToken || !tokenHasPickerScope(latestTokenResponse)) {
+            showMissingPickerScopeHelp(latestTokenResponse && latestTokenResponse.scope);
+            return Promise.reject(new Error('Missing Google Photos Picker permission.'));
+        }
         options = options || {};
         options.headers = options.headers || {};
         options.headers.Authorization = 'Bearer ' + globalAccessToken;
@@ -551,6 +585,10 @@
                 }
                 if (!response.ok) {
                     var msg = (data.error && data.error.message) || ('HTTP ' + response.status);
+                    if (/insufficient authentication scopes/i.test(msg)) {
+                        showMissingPickerScopeHelp(latestTokenResponse && latestTokenResponse.scope);
+                        msg += ' The token is missing ' + GOOGLE_PHOTOS_PICKER_SCOPE + '.';
+                    }
                     throw new Error(msg);
                 }
                 return data;

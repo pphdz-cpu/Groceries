@@ -26,14 +26,20 @@ In Google Cloud Console:
 
 1. Enable the **Google Photos Picker API** for your project.
 2. Create or use an OAuth 2.0 **Web application** client.
-3. Add this authorized JavaScript origin:
+3. On the OAuth consent screen/Data Access page, add this scope:
+
+   ```text
+   https://www.googleapis.com/auth/photospicker.mediaitems.readonly
+   ```
+
+4. Add this authorized JavaScript origin:
 
    ```text
    http://localhost:8000
    ```
 
-4. If your OAuth consent screen is in testing mode, add your Google account as a test user.
-5. Put that Web client ID in `GOOGLE_CLIENT_ID` inside `index.html`.
+5. If your OAuth consent screen is in testing mode, add your Google account as a test user.
+6. Put that Web client ID in `GOOGLE_CLIENT_ID` inside `index.html`.
 
 Then run the local server above, open `http://localhost:8000/`, click **Connect Google**, click a visited country, and use the Google Photos picker link in the drawer.
 
@@ -47,6 +53,7 @@ Check these first:
 - Do not use `file://`, `http://127.0.0.1:8000/`, or `http://0.0.0.0:8000/` unless that exact origin is also added in Google Cloud Console.
 - `GOOGLE_CLIENT_ID` in `index.html` must be your OAuth Web application client ID.
 - The **Google Photos Picker API** must be enabled for the same Google Cloud project as that client ID.
+- The OAuth consent screen/Data Access page must include this scope: `https://www.googleapis.com/auth/photospicker.mediaitems.readonly`.
 - If the OAuth consent screen is in testing mode, your Google account must be listed as a test user.
 - Popups must be allowed for `localhost`.
 
@@ -87,6 +94,28 @@ To fix it:
    - Mac: `Command+Shift+R`
 
 You do not need to enable the old **Photos Library API** for this map.
+
+### Error says "Request had insufficient authentication scopes"
+
+That means Google accepted your login, but the token it gave the page does not include the Google Photos Picker permission.
+
+Fix it in Google Cloud Console:
+
+1. Open your project.
+2. Go to **APIs & Services**.
+3. Open **OAuth consent screen**.
+4. Find the **Data Access** or **Scopes** section.
+5. Add this scope:
+
+   ```text
+   https://www.googleapis.com/auth/photospicker.mediaitems.readonly
+   ```
+
+6. Save/publish the consent screen changes.
+7. Make sure your Gmail is still added as a test user if the app is in testing mode.
+8. In the browser, hard refresh the map and click **Connect Google** again.
+
+You can leave the old **Photos Library API** disabled; this map does not use it.
 
 ### Unvisited-country photos do not load
 
